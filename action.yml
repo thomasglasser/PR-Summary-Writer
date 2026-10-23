@@ -1,0 +1,85 @@
+name: 'PR Summary Writer'
+description: "Autonomous Pull Request Summary & Changelog Synthesizer"
+author: 'Thomas Glasser'
+
+branding:
+  icon: 'file-text'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'GitHub Token with permissions for pull-requests:write, issues:write, and contents:read'
+    required: false
+    default: ''
+  app-id:
+    description: 'GitHub App ID for multi-repo installation access'
+    required: false
+    default: ''
+  private-key:
+    description: 'GitHub App Private Key (.pem format) for multi-repo installation access'
+    required: false
+    default: ''
+  gemini-api-key:
+    description: 'Google Gemini API Key (fallback if specific keys are not provided)'
+    required: false
+    default: ''
+  summary-key:
+    description: 'Dedicated Google Gemini API Key for PR summarizing (PR_SUMMARY_WRITER_API_KEY)'
+    required: false
+    default: ''
+  model:
+    description: 'Gemini model to use for analysis (default: auto - automatically discovers the newest Flash model)'
+    required: false
+    default: 'auto'
+  thinking-budget:
+    description: 'Thinking budget in tokens for Gemini reasoning (default: 1024; set to 0 to disable)'
+    required: false
+    default: '1024'
+  target-mode:
+    description: 'Where to post summary: description (updates PR body in-place), comment (sticky comment), or both (default: description)'
+    required: false
+    default: 'description'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache Pip Dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-pr-summary-writer-${{ hashFiles(format('{0}/requirements.txt', github.action_path)) }}
+        restore-keys: |
+          pip-pr-summary-writer-
+
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        pip install -r ${{ github.action_path }}/requirements.txt
+
+    - name: Run PR Summary Writer Engine
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        APP_ID: ${{ inputs.app-id }}
+        PRIVATE_KEY: ${{ inputs.private-key }}
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        PR_SUMMARY_WRITER_API_KEY: ${{ inputs.summary-key }}
+        PR_SUMMARIZER_API_KEY: ${{ inputs.summary-key }}
+        MODEL_NAME: ${{ inputs.model }}
+        THINKING_BUDGET: ${{ inputs.thinking-budget }}
+        TARGET_MODE: ${{ inputs.target-mode }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        COMMENT_ID: ${{ github.event.comment.id }}
+        COMMENT_BODY: ${{ github.event.comment.body }}
+        COMMENT_AUTHOR: ${{ github.event.comment.user.login || github.event.review.user.login || github.actor || '' }}
+        COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type || '' }}
+        EVENT_NAME: ${{ github.event_name }}
+        PYTHONPATH: ${{ github.action_path }}
+      run: |
+        python ${{ github.action_path }}/src/main.py

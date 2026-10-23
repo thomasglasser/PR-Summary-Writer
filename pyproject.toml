@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pr-summary-writer"
+version = "0.1.0"
+description = "Autonomous PR summary and domain-grouped changelog writer"
+readme = "README.md"
+authors = [{ name = "Thomas Glasser" }]
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=0.1.1",
+    "PyGithub>=2.1.1",
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+pr-summary-writer = "src.main:main"
