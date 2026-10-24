@@ -48,12 +48,7 @@ def update_pr_description_text(existing_body: Optional[str], summary_markdown: s
 
     # Markers not present in existing body
     if not raw_body:
-        template = (
-            "## Developer Notes & Rationale\n"
-            "<!-- Add your architectural intent, reasoning, or manual context here -->\n\n"
-            f"{formatted_block}"
-        )
-        return template
+        return formatted_block
 
     return f"{raw_body}\n\n{formatted_block}"
 

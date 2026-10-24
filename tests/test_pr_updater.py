@@ -3,13 +3,11 @@ from src.pr_updater import update_pr_description_text, START_TAG, END_TAG
 
 
 class TestPRUpdater(unittest.TestCase):
-    def test_empty_body_inserts_template(self):
+    def test_empty_body_starts_directly_with_markers(self):
         summary = "## Summary\nThis is a cool PR."
         res = update_pr_description_text("", summary)
-        self.assertIn("## Developer Notes & Rationale", res)
-        self.assertIn(START_TAG, res)
-        self.assertIn(summary, res)
-        self.assertIn(END_TAG, res)
+        self.assertNotIn("## Developer Notes & Rationale", res)
+        self.assertEqual(res, f"{START_TAG}\n{summary}\n{END_TAG}")
 
     def test_existing_body_appends_block(self):
         original = "### My Notes\nFixed a critical issue with entity tracking."

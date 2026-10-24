@@ -11,6 +11,7 @@ from src.pr_updater import PRUpdater
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("pr_summary")
+logging.getLogger("google_genai").setLevel(logging.WARNING)
 
 
 def fetch_pr_diff(pr_api_url: str, token: str, pr=None) -> str:
