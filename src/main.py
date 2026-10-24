@@ -13,13 +13,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("pr_summary")
 
 
-def fetch_pr_diff(diff_url: str, token: str) -> str:
-    """Fetches the unified diff text from GitHub for the PR."""
+def fetch_pr_diff(pr_api_url: str, token: str, pr=None) -> str:
+    """Fetches the unified diff text from GitHub API for the PR."""
     headers = {
-        "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3.diff",
     }
-    response = requests.get(diff_url, headers=headers, timeout=60)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    response = requests.get(pr_api_url, headers=headers, timeout=60)
+    if response.status_code == 200:
+        return response.text
+
+    if response.status_code == 406 and pr is not None:
+        logger.warning("PR diff endpoint returned 406 (diff too large). Assembling from file patches...")
+        patches = []
+        for f in pr.get_files():
+            if f.patch:
+                patches.append(f"diff --git a/{f.filename} b/{f.filename}\n--- a/{f.filename}\n+++ b/{f.filename}\n{f.patch}")
+        return "\n".join(patches)
+
     response.raise_for_status()
     return response.text
 
@@ -69,10 +81,9 @@ def main():
         except Exception:
             pass
 
-    # Fetch raw diff
+    # Fetch raw diff via REST API
     target_token = auth_manager.get_token_for_repo(config.github_repository) or config.github_token or ""
-    diff_url = pr.diff_url
-    raw_diff = fetch_pr_diff(diff_url, target_token)
+    raw_diff = fetch_pr_diff(pr.url, target_token, pr=pr)
 
     # Filter diff
     filtered_diff, included_files, ignored_files = filter_diff_for_summary(raw_diff)
