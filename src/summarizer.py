@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
@@ -11,6 +11,47 @@ from src.models_resolver import resolve_candidate_models
 from src.prompt import SUMMARY_SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger("pr_summary.synthesizer")
+
+
+def extract_retry_delay(error: Exception) -> Optional[float]:
+    """
+    Extracts recommended retryDelay (in seconds) from a Google GenAI / API error if present.
+    Checks structured error details and regex matches in string representation.
+    """
+    try:
+        for attr in ("details", "error", "args"):
+            val = getattr(error, attr, None)
+            candidates_to_check = [val] if not isinstance(val, (list, tuple)) else list(val)
+            for item in candidates_to_check:
+                if isinstance(item, dict):
+                    details = item.get("details", [])
+                    if isinstance(details, list):
+                        for d in details:
+                            if isinstance(d, dict) and "retryDelay" in d:
+                                delay_str = str(d["retryDelay"]).rstrip("s")
+                                return float(delay_str)
+                    if "retryDelay" in item:
+                        delay_str = str(item["retryDelay"]).rstrip("s")
+                        return float(delay_str)
+    except Exception:
+        pass
+
+    err_text = str(error)
+    m = re.search(r"['\"]?retryDelay['\"]?\s*:\s*['\"]?([\d\.]+)s?['\"]?", err_text, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+
+    m2 = re.search(r"retry (?:in|after) ([\d\.]+)\s*s", err_text, re.IGNORECASE)
+    if m2:
+        try:
+            return float(m2.group(1))
+        except ValueError:
+            pass
+
+    return None
 
 
 class PRSummarizer:
@@ -47,7 +88,7 @@ class PRSummarizer:
 
         raise RuntimeError(f"All candidate models failed to generate summary. Last error: {last_error}")
 
-    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 3) -> str:
+    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 2) -> str:
         attempt = 0
         current_thinking_budget = self.config.thinking_budget
 
@@ -76,48 +117,53 @@ class PRSummarizer:
 
                 raise ValueError("Model returned an empty response.")
 
-            except APIError as api_err:
-                err_str = str(api_err)
+            except Exception as e:
+                err_str = str(e).lower()
 
                 # Check if thinking_config is unsupported by this model
-                if "thinking_config" in err_str.lower() or "unsupported field" in err_str.lower():
+                if "thinking_config" in err_str or "unsupported field" in err_str:
                     logger.info(f"Model '{model_name}' does not support thinking_config. Retrying without thinking_config...")
                     current_thinking_budget = 0
                     continue
 
-                # Rate limiting or temporary high demand
-                if api_err.code in (429, 503) or "resourceexhausted" in err_str.lower():
-                    delay = self._extract_retry_delay(err_str, default=5.0 * attempt)
-                    reason = "rate limit (429)" if api_err.code == 429 or "resourceexhausted" in err_str.lower() else "high demand (503)"
-                    logger.warning(f"Model '{model_name}' encountered {reason}. Backing off for {delay:.1f}s before retrying (attempt {attempt}/{max_retries})...")
-                    time.sleep(delay)
-                    continue
+                is_503 = "503" in err_str or "high demand" in err_str or "unavailable" in err_str or "overloaded" in err_str
+                is_429 = "429" in err_str or "quota" in err_str or "exhausted" in err_str or "resourceexhausted" in err_str or "rate limit" in err_str or "too many requests" in err_str
+
+                if is_503 or is_429:
+                    reason = "high demand (503)" if is_503 else "rate limit (429)"
+                    retry_delay = extract_retry_delay(e)
+
+                    if retry_delay is not None and retry_delay <= 15:
+                        backoff_sec = retry_delay + 1
+                        if attempt < max_retries:
+                            logger.warning(
+                                f"Model '{model_name}' encountered {reason}: {e}. "
+                                f"Backing off for {backoff_sec:.1f}s before retrying..."
+                            )
+                            time.sleep(backoff_sec)
+                            continue
+                        else:
+                            logger.warning(f"Model '{model_name}' exhausted retries on {reason}: {e}")
+                            break
+                    elif retry_delay is not None and retry_delay > 15:
+                        logger.warning(
+                            f"Model '{model_name}' encountered {reason}: {e}. "
+                            f"Recommended retryDelay of {retry_delay:.1f}s exceeds short backoff. Failing over to next model immediately..."
+                        )
+                        break
+                    else:
+                        if attempt < max_retries:
+                            backoff_sec = 5.0
+                            logger.warning(
+                                f"Model '{model_name}' encountered {reason}: {e}. "
+                                f"Backing off for {backoff_sec}s before retrying..."
+                            )
+                            time.sleep(backoff_sec)
+                            continue
+                        else:
+                            logger.warning(f"Model '{model_name}' exhausted retries on {reason}: {e}")
+                            break
 
                 raise
 
-            except Exception as e:
-                err_str = str(e)
-                if "thinking_config" in err_str.lower():
-                    logger.info(f"Model '{model_name}' does not support thinking_config. Retrying without thinking_config...")
-                    current_thinking_budget = 0
-                    continue
-
-                if "429" in err_str or "503" in err_str:
-                    delay = 5.0 * attempt
-                    logger.warning(f"Transient error on '{model_name}'. Backing off for {delay:.1f}s before retrying...")
-                    time.sleep(delay)
-                    continue
-
-                raise
-
-        raise RuntimeError(f"Model '{model_name}' exhausted {max_retries} retries.")
-
-    @staticmethod
-    def _extract_retry_delay(error_message: str, default: float = 5.0) -> float:
-        match = re.search(r"retryDelay\':\s*\'(\d+(?:\.\d+)?)s\'", error_message)
-        if match:
-            try:
-                return float(match.group(1)) + 0.5
-            except ValueError:
-                pass
-        return default
+        raise RuntimeError(f"Model '{model_name}' failed to generate summary (exhausted retries or quota).")
