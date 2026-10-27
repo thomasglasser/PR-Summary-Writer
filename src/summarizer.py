@@ -57,7 +57,10 @@ def extract_retry_delay(error: Exception) -> Optional[float]:
 class PRSummarizer:
     def __init__(self, config: SummaryConfig):
         self.config = config
-        self.client = genai.Client(api_key=config.gemini_api_key)
+        self.client = genai.Client(
+            api_key=config.gemini_api_key,
+            http_options=types.HttpOptions(timeout=90.0)
+        )
 
     def generate_summary(
         self,
@@ -98,6 +101,7 @@ class PRSummarizer:
                 config_kwargs = {
                     "system_instruction": SUMMARY_SYSTEM_PROMPT,
                     "temperature": 0.2,
+                    "http_options": types.HttpOptions(timeout=90.0),
                 }
                 if current_thinking_budget > 0:
                     config_kwargs["thinking_config"] = types.ThinkingConfig(
@@ -128,7 +132,7 @@ class PRSummarizer:
 
                 is_network_disconnect = any(keyword in err_str for keyword in (
                     "disconnected", "connection reset", "connection refused", "remote protocol error",
-                    "timed out", "timeout", "broken pipe", "peer closed"
+                    "timed out", "timeout", "readtimeout", "connecttimeout", "broken pipe", "peer closed"
                 ))
 
                 if is_network_disconnect:

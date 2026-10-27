@@ -17,7 +17,7 @@ class SummaryConfig:
     comment_author: str = ""
     comment_author_type: str = ""
     model_name: str = "auto"
-    thinking_budget: int = 1024
+    thinking_budget: int = 0
     target_mode: str = "description"  # "description", "comment", or "both"
     event_name: str = ""
 
@@ -97,13 +97,13 @@ class SummaryConfig:
             raise ValueError(f"Invalid or missing PR_NUMBER environment variable: '{pr_number_str}'")
 
         model_name = os.environ.get("MODEL_NAME", "auto").strip() or "auto"
-        thinking_budget_str = os.environ.get("THINKING_BUDGET", "1024").strip().lower()
-        if thinking_budget_str in ("0", "off", "false", "none", "disable", "disabled"):
+        thinking_budget_str = os.environ.get("THINKING_BUDGET", "0").strip().lower()
+        if thinking_budget_str in ("0", "off", "false", "none", "disable", "disabled", ""):
             thinking_budget = 0
         elif thinking_budget_str.isdigit():
             thinking_budget = int(thinking_budget_str)
         else:
-            thinking_budget = 1024
+            thinking_budget = 0
 
         target_mode = os.environ.get("TARGET_MODE", "description").strip().lower()
         if target_mode not in ("description", "comment", "both"):

@@ -20,6 +20,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.gemini_api_key, "test-key-writer")
         self.assertEqual(cfg.github_repository, "owner/repo")
         self.assertEqual(cfg.pr_number, 42)
+        self.assertEqual(cfg.thinking_budget, 0)
 
     @patch.dict(
         os.environ,
@@ -28,12 +29,14 @@ class TestConfig(unittest.TestCase):
             "GITHUB_REPOSITORY": "owner/repo",
             "PR_NUMBER": "100",
             "GITHUB_TOKEN": "ghp_dummy",
+            "THINKING_BUDGET": "1024",
         },
         clear=True,
     )
     def test_from_env_summarizer_key_fallback(self):
         cfg = SummaryConfig.from_env()
         self.assertEqual(cfg.gemini_api_key, "test-key-summarizer")
+        self.assertEqual(cfg.thinking_budget, 1024)
 
     @patch.dict(
         os.environ,

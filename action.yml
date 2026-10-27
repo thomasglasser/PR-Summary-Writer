@@ -32,9 +32,9 @@ inputs:
     required: false
     default: 'auto'
   thinking-budget:
-    description: 'Thinking budget in tokens for Gemini reasoning (default: 1024; set to 0 to disable)'
+    description: 'Thinking budget in tokens for Gemini reasoning (default: 0 to optimize latency and prevent network timeouts on large PR diffs)'
     required: false
-    default: '1024'
+    default: '0'
   target-mode:
     description: 'Where to post summary: description (updates PR body in-place), comment (sticky comment), or both (default: description)'
     required: false
@@ -59,7 +59,7 @@ runs:
     - name: Install Dependencies
       shell: bash
       run: |
-        pip install -r ${{ github.action_path }}/requirements.txt
+        pip install -r "${{ github.action_path }}/requirements.txt"
 
     - name: Run PR Summary Writer Engine
       shell: bash
@@ -77,9 +77,9 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         COMMENT_ID: ${{ github.event.comment.id }}
         COMMENT_BODY: ${{ github.event.comment.body }}
-        COMMENT_AUTHOR: ${{ github.event.comment.user.login || github.event.review.user.login || github.actor || '' }}
-        COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type || '' }}
+        COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
         EVENT_NAME: ${{ github.event_name }}
         PYTHONPATH: ${{ github.action_path }}
       run: |
-        python ${{ github.action_path }}/src/main.py
+        python "${{ github.action_path }}/src/main.py"
