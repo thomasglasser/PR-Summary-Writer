@@ -9,6 +9,7 @@ _CACHED_RESOLVED_MODELS: Optional[List[str]] = None
 
 MAX_CANDIDATE_MODELS = 6
 FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
+DEFAULT_FLASH_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 
 def clear_model_cache() -> None:
@@ -44,25 +45,39 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
         return _CACHED_RESOLVED_MODELS
 
     logger.info("Discovering available Gemini Flash models via API...")
-    models_pager = client.models.list()
     flash_candidates: List[tuple[tuple, str]] = []
 
-    for model in models_pager:
-        name = getattr(model, "name", "")
-        if name.startswith("models/"):
-            name = name[7:]
+    try:
+        models_pager = client.models.list(config={"page_size": 100})
+        for model in models_pager:
+            name = getattr(model, "name", "")
+            if name.startswith("models/"):
+                name = name[7:]
 
-        ver = _parse_flash_version(name)
-        if ver is not None:
-            flash_candidates.append((ver, name))
+            ver = _parse_flash_version(name)
+            if ver is not None:
+                flash_candidates.append((ver, name))
+
+            if len(flash_candidates) >= MAX_CANDIDATE_MODELS * 2:
+                break
+    except Exception as e:
+        logger.warning(
+            f"Error or timeout discovering Gemini models via API: {e}. Falling back to default Flash models: {DEFAULT_FLASH_MODELS}"
+        )
 
     if not flash_candidates:
-        # Fallback to standard known models if list fails
-        return ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        _CACHED_RESOLVED_MODELS = list(DEFAULT_FLASH_MODELS)
+        return _CACHED_RESOLVED_MODELS
 
     unique_candidates = {name: ver for ver, name in flash_candidates}
     sorted_models = sorted(unique_candidates.keys(), key=lambda m: unique_candidates[m], reverse=True)
     top_candidates = sorted_models[:MAX_CANDIDATE_MODELS]
+
+    for fallback in DEFAULT_FLASH_MODELS:
+        if fallback not in top_candidates:
+            top_candidates.append(fallback)
+        if len(top_candidates) >= MAX_CANDIDATE_MODELS:
+            break
 
     logger.info(f"Discovered standard Flash model(s) via API; selected top {len(top_candidates)}: {top_candidates}")
     _CACHED_RESOLVED_MODELS = top_candidates

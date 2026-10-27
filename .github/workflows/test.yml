@@ -23,5 +23,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run test suite
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.PR_SUMMARY_WRITER_API_KEY }}
         run: |
           python -m unittest discover -s tests
