@@ -7,7 +7,7 @@ logger = logging.getLogger("pr_summary.models")
 
 _CACHED_RESOLVED_MODELS: Optional[List[str]] = None
 
-MAX_CANDIDATE_MODELS = 3
+MAX_CANDIDATE_MODELS = 6
 FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
 
 
@@ -32,8 +32,8 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
     """
     Resolves a prioritized list of Gemini models to try.
     If a specific model name is provided, returns [configured_model].
-    If 'auto' (or empty) is provided, queries the Gemini API for the 3 newest standard
-    'gemini-X.X-flash' models.
+    If 'auto' (or empty) is provided, queries the Gemini API for the newest standard
+    'gemini-X.X-flash' models up to MAX_CANDIDATE_MODELS.
     """
     global _CACHED_RESOLVED_MODELS
 

@@ -88,7 +88,7 @@ class PRSummarizer:
 
         raise RuntimeError(f"All candidate models failed to generate summary. Last error: {last_error}")
 
-    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 2) -> str:
+    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 3) -> str:
         attempt = 0
         current_thinking_budget = self.config.thinking_budget
 
@@ -126,6 +126,32 @@ class PRSummarizer:
                     current_thinking_budget = 0
                     continue
 
+                is_network_disconnect = any(keyword in err_str for keyword in (
+                    "disconnected", "connection reset", "connection refused", "remote protocol error",
+                    "timed out", "timeout", "broken pipe", "peer closed"
+                ))
+
+                if is_network_disconnect:
+                    if current_thinking_budget > 0:
+                        logger.warning(
+                            f"Model '{model_name}' encountered network disconnect/timeout: {e}. "
+                            f"Disabling thinking budget to reduce generation latency and retrying..."
+                        )
+                        current_thinking_budget = 0
+                        time.sleep(2.0)
+                        continue
+                    elif attempt < max_retries:
+                        backoff_sec = 5.0 * attempt
+                        logger.warning(
+                            f"Model '{model_name}' encountered network disconnect/timeout: {e}. "
+                            f"Backing off for {backoff_sec:.1f}s before retrying (attempt {attempt}/{max_retries})..."
+                        )
+                        time.sleep(backoff_sec)
+                        continue
+                    else:
+                        logger.warning(f"Model '{model_name}' exhausted retries on network disconnect/timeout: {e}")
+                        break
+
                 is_503 = "503" in err_str or "high demand" in err_str or "unavailable" in err_str or "overloaded" in err_str
                 is_429 = "429" in err_str or "quota" in err_str or "exhausted" in err_str or "resourceexhausted" in err_str or "rate limit" in err_str or "too many requests" in err_str
 
@@ -153,10 +179,10 @@ class PRSummarizer:
                         break
                     else:
                         if attempt < max_retries:
-                            backoff_sec = 5.0
+                            backoff_sec = 5.0 * attempt
                             logger.warning(
                                 f"Model '{model_name}' encountered {reason}: {e}. "
-                                f"Backing off for {backoff_sec}s before retrying..."
+                                f"Backing off for {backoff_sec:.1f}s before retrying..."
                             )
                             time.sleep(backoff_sec)
                             continue

@@ -11,7 +11,8 @@ class TestSummarizerDelayAndQuota(unittest.TestCase):
             gemini_api_key="fake-key",
             github_repository="owner/repo",
             pr_number=1,
-            model_name="auto"
+            model_name="auto",
+            thinking_budget=1024
         )
         with patch("src.summarizer.genai.Client"):
             self.summarizer = PRSummarizer(self.config)
@@ -51,7 +52,38 @@ class TestSummarizerDelayAndQuota(unittest.TestCase):
         mock_sleep.assert_not_called()
         self.assertIn("exhausted retries or quota", str(ctx.exception))
 
+    @patch("src.summarizer.time.sleep")
+    def test_call_model_retries_on_network_disconnect(self, mock_sleep):
+        mock_response = MagicMock()
+        mock_response.text = "Generated summary markdown"
+
+        # First call fails with disconnect, second succeeds
+        self.summarizer.client.models.generate_content.side_effect = [
+            Exception("Server disconnected without sending a response."),
+            mock_response
+        ]
+
+        result = self.summarizer._call_model_with_retry("gemini-3.8-flash", "test prompt", max_retries=3)
+        self.assertEqual(result, "Generated summary markdown")
+        # Assert sleep was called with short 2.0s delay
+        mock_sleep.assert_called_with(2.0)
+
+    @patch("src.summarizer.time.sleep")
+    def test_call_model_exponential_backoff_on_503(self, mock_sleep):
+        mock_response = MagicMock()
+        mock_response.text = "Generated summary markdown"
+
+        # First call 503, second call succeeds
+        self.summarizer.client.models.generate_content.side_effect = [
+            Exception("503 UNAVAILABLE: This model is currently experiencing high demand."),
+            mock_response
+        ]
+
+        result = self.summarizer._call_model_with_retry("gemini-3.7-flash", "test prompt", max_retries=3)
+        self.assertEqual(result, "Generated summary markdown")
+        # 5.0 * attempt (attempt=1) -> 5.0
+        mock_sleep.assert_called_with(5.0)
+
 
 if __name__ == "__main__":
     unittest.main()
-
