@@ -7,7 +7,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from src.config import SummaryConfig
-from src.models_resolver import resolve_model_name
+from src.models_resolver import resolve_candidate_models, resolve_model_name
 from src.prompt import SUMMARY_SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger("pr_summary.synthesizer")
@@ -82,14 +82,40 @@ class PRSummarizer:
     ) -> str:
         """
         Generates a conceptual summary and domain-grouped changelog for the given PR diff.
-        Uses the resolved Gemini model directly without cascading fallback models.
+        Tries top Flash candidate models, failing over immediately to alternatives on 429 quota exhaustion.
         """
-        model_name = resolve_model_name(self.client, self.config.model_name)
-        logger.info(f"Running Gemini summary synthesis with model '{model_name}'...")
+        candidate_models = resolve_candidate_models(self.client, self.config.model_name)
         user_prompt = build_user_prompt(pr_title, pr_base, pr_head, diff_text, file_list)
-        return self._call_model_with_retry(model_name, user_prompt)
 
-    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 3) -> str:
+        last_error: Optional[Exception] = None
+        encountered_429 = False
+        encountered_503 = False
+
+        for model_name in candidate_models:
+            logger.info(f"Running Gemini summary synthesis with model '{model_name}'...")
+            try:
+                summary_text = self._call_model_with_retry(model_name, user_prompt, max_retries=2)
+                if summary_text and summary_text.strip():
+                    return summary_text.strip()
+            except QuotaExceededException as qe:
+                encountered_429 = True
+                last_error = qe
+                logger.warning(f"Model '{model_name}' quota exhausted. Failing over immediately to next candidate model...")
+            except HighDemandException as hde:
+                encountered_503 = True
+                last_error = hde
+                logger.warning(f"Model '{model_name}' experiencing high demand. Failing over immediately to next candidate model...")
+            except Exception as e:
+                logger.warning(f"Model '{model_name}' failed to generate summary: {e}")
+                last_error = e
+
+        if encountered_429:
+            raise QuotaExceededException(f"All candidate models exhausted API quota. Last error: {last_error}")
+        if encountered_503:
+            raise HighDemandException(f"All candidate models experienced high demand. Last error: {last_error}")
+        raise RuntimeError(f"All candidate models failed to generate summary. Last error: {last_error}")
+
+    def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 2) -> str:
         attempt = 0
         current_thinking_budget = self.config.thinking_budget
 
