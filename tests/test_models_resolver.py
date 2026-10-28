@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
-from src.models_resolver import resolve_model_name, resolve_candidate_models, clear_model_cache, DEFAULT_FLASH_MODELS
+from src.models_resolver import resolve_model_name, resolve_candidate_models, clear_model_cache
 
 class MockModel:
     def __init__(self, name):
@@ -36,30 +36,39 @@ class TestModelsResolver(unittest.TestCase):
             [
                 "gemini-3.8-flash",
                 "gemini-3.7-flash",
-                "gemini-2.0-flash",
-                "gemini-1.5-flash",
             ],
         )
 
         resolved = resolve_model_name(client, configured_model="auto")
         self.assertEqual(resolved, "gemini-3.8-flash")
 
-    def test_auto_falls_back_if_models_list_fails(self):
+    def test_auto_fails_if_models_list_fails(self):
         client = MagicMock()
         client.models.list.side_effect = RuntimeError("API connection timeout / ReadTimeout")
 
-        candidates = resolve_candidate_models(client, configured_model="auto")
-        self.assertEqual(candidates, DEFAULT_FLASH_MODELS)
+        with self.assertRaises(RuntimeError):
+            resolve_candidate_models(client, configured_model="auto")
 
-    def test_auto_falls_back_if_no_flash_models_found(self):
+    def test_auto_fails_if_no_flash_models_found(self):
         client = MagicMock()
         client.models.list.return_value = [
             MockModel("models/text-embedding-004"),
             MockModel("models/gemini-embedding-001"),
         ]
 
-        candidates = resolve_candidate_models(client, configured_model="auto")
-        self.assertEqual(candidates, DEFAULT_FLASH_MODELS)
+        with self.assertRaises(ValueError):
+            resolve_candidate_models(client, configured_model="auto")
+
+    def test_auto_filters_deprecated_and_old_models(self):
+        client = MagicMock()
+        client.models.list.return_value = [
+            MockModel("models/gemini-1.5-flash"),
+            MockModel("models/gemini-2.0-flash"),
+            MockModel("models/gemini-2.5-flash"),
+        ]
+
+        with self.assertRaises(ValueError):
+            resolve_candidate_models(client, configured_model="auto")
 
 if __name__ == "__main__":
     unittest.main()
