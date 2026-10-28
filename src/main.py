@@ -127,6 +127,7 @@ def main():
 
     except QuotaExceededException as qe:
         logger.warning(f"Quota error: {qe}")
+        PRUpdater(pr).write_step_summary("⚠️ **PR Summary Writer**: Skipped AI summary generation because Google Gemini API quota or rate limits are exhausted for today.")
         if target_comment:
             try:
                 target_comment.create_reaction("confused")
@@ -136,6 +137,7 @@ def main():
         sys.exit(0)
     except HighDemandException as hde:
         logger.warning(f"High demand error: {hde}")
+        PRUpdater(pr).write_step_summary("⏳ **PR Summary Writer**: Skipped AI summary generation because the Gemini model is experiencing temporary high demand.")
         if target_comment:
             try:
                 target_comment.create_reaction("confused")
