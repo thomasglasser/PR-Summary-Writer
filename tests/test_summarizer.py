@@ -84,6 +84,29 @@ class TestSummarizerDelayAndQuota(unittest.TestCase):
         # 5.0 * attempt (attempt=1) -> 5.0
         mock_sleep.assert_called_with(5.0)
 
+    @patch("src.summarizer.resolve_model_name", return_value="gemini-3.8-flash")
+    def test_generate_summary_uses_single_resolved_model(self, mock_resolve_model):
+        with patch.object(self.summarizer, "_call_model_with_retry", return_value="Summary markdown") as mock_call:
+            res = self.summarizer.generate_summary("Title", "main", "feat", "diff", ["file.txt"])
+            self.assertEqual(res, "Summary markdown")
+            mock_resolve_model.assert_called_once_with(self.summarizer.client, "auto")
+            mock_call.assert_called_once()
+            self.assertEqual(mock_call.call_args[0][0], "gemini-3.8-flash")
+
+    @patch("src.summarizer.time.sleep")
+    def test_call_model_raises_high_demand_exception_when_exhausted(self, mock_sleep):
+        from src.summarizer import HighDemandException
+        self.summarizer.client.models.generate_content.side_effect = Exception("503 UNAVAILABLE: high demand")
+        with self.assertRaises(HighDemandException):
+            self.summarizer._call_model_with_retry("gemini-3.7-flash", "test prompt", max_retries=2)
+
+    @patch("src.summarizer.time.sleep")
+    def test_call_model_raises_quota_exceeded_exception_when_exhausted(self, mock_sleep):
+        from src.summarizer import QuotaExceededException
+        self.summarizer.client.models.generate_content.side_effect = Exception("429 ResourceExhausted: rate limit")
+        with self.assertRaises(QuotaExceededException):
+            self.summarizer._call_model_with_retry("gemini-3.7-flash", "test prompt", max_retries=2)
+
 
 if __name__ == "__main__":
     unittest.main()

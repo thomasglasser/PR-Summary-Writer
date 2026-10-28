@@ -6,7 +6,7 @@ import requests
 from src.config import SummaryConfig
 from src.github_auth import GitHubAuthManager
 from src.diff_parser import filter_diff_for_summary
-from src.summarizer import PRSummarizer
+from src.summarizer import PRSummarizer, QuotaExceededException, HighDemandException
 from src.pr_updater import PRUpdater
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -94,35 +94,63 @@ def main():
         logger.info("No summarizable source files modified in this PR. Skipping summary.")
         return
 
-    # Synthesize summary via Gemini
-    summarizer = PRSummarizer(config)
-    summary_markdown = summarizer.generate_summary(
-        pr_title=pr.title,
-        pr_base=pr.base.ref,
-        pr_head=pr.head.ref,
-        diff_text=filtered_diff,
-        file_list=included_files,
-    )
+    try:
+        # Synthesize summary via Gemini
+        summarizer = PRSummarizer(config)
+        summary_markdown = summarizer.generate_summary(
+            pr_title=pr.title,
+            pr_base=pr.base.ref,
+            pr_head=pr.head.ref,
+            diff_text=filtered_diff,
+            file_list=included_files,
+        )
 
-    # Update PR target
-    updater = PRUpdater(pr)
+        # Update PR target
+        updater = PRUpdater(pr)
 
-    if config.target_mode in ("description", "both"):
-        updater.update_description(summary_markdown)
+        if config.target_mode in ("description", "both"):
+            updater.update_description(summary_markdown)
 
-    if config.target_mode in ("comment", "both"):
-        updater.update_sticky_comment(summary_markdown)
+        if config.target_mode in ("comment", "both"):
+            updater.update_sticky_comment(summary_markdown)
 
-    updater.write_step_summary(summary_markdown)
+        updater.write_step_summary(summary_markdown)
 
-    # React with hooray reaction if triggered by a comment
-    if target_comment:
-        try:
-            target_comment.create_reaction("hooray")
-        except Exception:
-            pass
+        # React with hooray reaction if triggered by a comment
+        if target_comment:
+            try:
+                target_comment.create_reaction("hooray")
+            except Exception:
+                pass
 
-    logger.info("Successfully generated and updated PR summary.")
+        logger.info("Successfully generated and updated PR summary.")
+
+    except QuotaExceededException as qe:
+        logger.warning(f"Quota error: {qe}")
+        if target_comment:
+            try:
+                target_comment.create_reaction("confused")
+                pr.create_issue_comment("😴 **PR Summary Writer is resting:** AI API quota or rate limit exceeded for today. Please try again later.")
+            except Exception:
+                pass
+        sys.exit(0)
+    except HighDemandException as hde:
+        logger.warning(f"High demand error: {hde}")
+        if target_comment:
+            try:
+                target_comment.create_reaction("confused")
+                pr.create_issue_comment("⏳ **PR Summary Writer is busy:** The AI model is currently experiencing high demand. Please try again in a few moments.")
+            except Exception:
+                pass
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Error during summary generation: {e}", exc_info=True)
+        if target_comment:
+            try:
+                target_comment.create_reaction("confused")
+            except Exception:
+                pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ class TestLiveGeminiAPI(unittest.TestCase):
     def test_live_model_discovery(self):
         client = genai.Client(
             api_key=self.api_key,
-            http_options=types.HttpOptions(timeout=30.0)
+            http_options=types.HttpOptions(timeout=30_000)
         )
         candidates = resolve_candidate_models(client, configured_model="auto")
         self.assertIsInstance(candidates, list)
@@ -32,7 +32,7 @@ class TestLiveGeminiAPI(unittest.TestCase):
     def test_live_generate_content(self):
         client = genai.Client(
             api_key=self.api_key,
-            http_options=types.HttpOptions(timeout=30.0)
+            http_options=types.HttpOptions(timeout=30_000)
         )
         candidates = resolve_candidate_models(client, configured_model="auto")
         top_model = candidates[0]
@@ -42,7 +42,7 @@ class TestLiveGeminiAPI(unittest.TestCase):
             contents="Reply with the single word: PONG",
             config=types.GenerateContentConfig(
                 temperature=0.1,
-                http_options=types.HttpOptions(timeout=30.0)
+                http_options=types.HttpOptions(timeout=30_000)
             )
         )
         self.assertIsNotNone(response)

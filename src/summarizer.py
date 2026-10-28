@@ -7,10 +7,20 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from src.config import SummaryConfig
-from src.models_resolver import resolve_candidate_models
+from src.models_resolver import resolve_model_name
 from src.prompt import SUMMARY_SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger("pr_summary.synthesizer")
+
+
+class QuotaExceededException(RuntimeError):
+    """Raised when Google Gemini API quota or rate limits are fully exhausted."""
+    pass
+
+
+class HighDemandException(RuntimeError):
+    """Raised when the Gemini model is experiencing temporary 503 high demand / service unavailability."""
+    pass
 
 
 def extract_retry_delay(error: Exception) -> Optional[float]:
@@ -59,7 +69,7 @@ class PRSummarizer:
         self.config = config
         self.client = genai.Client(
             api_key=config.gemini_api_key,
-            http_options=types.HttpOptions(timeout=90.0)
+            http_options=types.HttpOptions(timeout=120_000)
         )
 
     def generate_summary(
@@ -72,24 +82,12 @@ class PRSummarizer:
     ) -> str:
         """
         Generates a conceptual summary and domain-grouped changelog for the given PR diff.
-        Employs dynamic model failover and exponential backoff on rate limits.
+        Uses the resolved Gemini model directly without cascading fallback models.
         """
-        candidate_models = resolve_candidate_models(self.client, self.config.model_name)
+        model_name = resolve_model_name(self.client, self.config.model_name)
+        logger.info(f"Running Gemini summary synthesis with model '{model_name}'...")
         user_prompt = build_user_prompt(pr_title, pr_base, pr_head, diff_text, file_list)
-
-        last_error: Optional[Exception] = None
-
-        for model_name in candidate_models:
-            logger.info(f"Running Gemini summary synthesis with model '{model_name}'...")
-            try:
-                summary_text = self._call_model_with_retry(model_name, user_prompt)
-                if summary_text and summary_text.strip():
-                    return summary_text.strip()
-            except Exception as e:
-                logger.warning(f"Model '{model_name}' failed to generate summary: {e}")
-                last_error = e
-
-        raise RuntimeError(f"All candidate models failed to generate summary. Last error: {last_error}")
+        return self._call_model_with_retry(model_name, user_prompt)
 
     def _call_model_with_retry(self, model_name: str, user_prompt: str, max_retries: int = 3) -> str:
         attempt = 0
@@ -101,7 +99,7 @@ class PRSummarizer:
                 config_kwargs = {
                     "system_instruction": SUMMARY_SYSTEM_PROMPT,
                     "temperature": 0.2,
-                    "http_options": types.HttpOptions(timeout=90.0),
+                    "http_options": types.HttpOptions(timeout=120_000),
                 }
                 if current_thinking_budget > 0:
                     config_kwargs["thinking_config"] = types.ThinkingConfig(
@@ -168,19 +166,23 @@ class PRSummarizer:
                         if attempt < max_retries:
                             logger.warning(
                                 f"Model '{model_name}' encountered {reason}: {e}. "
-                                f"Backing off for {backoff_sec:.1f}s before retrying..."
+                                f"Backing off for {backoff_sec:.1f}s before retry..."
                             )
                             time.sleep(backoff_sec)
                             continue
                         else:
                             logger.warning(f"Model '{model_name}' exhausted retries on {reason}: {e}")
-                            break
+                            if is_429:
+                                raise QuotaExceededException(f"Model '{model_name}' failed to generate summary (exhausted retries or quota): {e}") from e
+                            raise HighDemandException(f"Model '{model_name}' failed to generate summary (high demand / 503): {e}") from e
                     elif retry_delay is not None and retry_delay > 15:
                         logger.warning(
                             f"Model '{model_name}' encountered {reason}: {e}. "
-                            f"Recommended retryDelay of {retry_delay:.1f}s exceeds short backoff. Failing over to next model immediately..."
+                            f"Recommended retryDelay of {retry_delay:.1f}s exceeds short backoff."
                         )
-                        break
+                        if is_429:
+                            raise QuotaExceededException(f"Model '{model_name}' failed to generate summary (exhausted retries or quota): {e}") from e
+                        raise HighDemandException(f"Model '{model_name}' failed to generate summary (high demand / 503): {e}") from e
                     else:
                         if attempt < max_retries:
                             backoff_sec = 5.0 * attempt
@@ -192,7 +194,9 @@ class PRSummarizer:
                             continue
                         else:
                             logger.warning(f"Model '{model_name}' exhausted retries on {reason}: {e}")
-                            break
+                            if is_429:
+                                raise QuotaExceededException(f"Model '{model_name}' failed to generate summary (exhausted retries or quota): {e}") from e
+                            raise HighDemandException(f"Model '{model_name}' failed to generate summary (high demand / 503): {e}") from e
 
                 raise
 

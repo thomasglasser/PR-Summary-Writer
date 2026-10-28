@@ -7,7 +7,7 @@ logger = logging.getLogger("pr_summary.models")
 
 _CACHED_RESOLVED_MODELS: Optional[List[str]] = None
 
-MAX_CANDIDATE_MODELS = 6
+MAX_CANDIDATE_MODELS = 3
 FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
 DEFAULT_FLASH_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
