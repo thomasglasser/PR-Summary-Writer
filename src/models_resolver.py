@@ -7,9 +7,9 @@ logger = logging.getLogger("pr_summary.models")
 
 _CACHED_RESOLVED_MODELS: Optional[List[str]] = None
 
-MAX_CANDIDATE_MODELS = 3
 FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
-DEFAULT_FLASH_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+DEFAULT_FLASH_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"]
+DEPRECATED_MODELS = {"gemini-2.5-flash"}
 
 
 def clear_model_cache() -> None:
@@ -34,7 +34,7 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
     Resolves a prioritized list of Gemini models to try.
     If a specific model name is provided, returns [configured_model].
     If 'auto' (or empty) is provided, queries the Gemini API for the newest standard
-    'gemini-X.X-flash' models up to MAX_CANDIDATE_MODELS.
+    Flash models, always including stable production models (gemini-2.0-flash, gemini-1.5-flash).
     """
     global _CACHED_RESOLVED_MODELS
 
@@ -54,11 +54,14 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
             if name.startswith("models/"):
                 name = name[7:]
 
+            if name in DEPRECATED_MODELS:
+                continue
+
             ver = _parse_flash_version(name)
             if ver is not None:
                 flash_candidates.append((ver, name))
 
-            if len(flash_candidates) >= MAX_CANDIDATE_MODELS * 2:
+            if len(flash_candidates) >= 10:
                 break
     except Exception as e:
         logger.warning(
@@ -69,17 +72,19 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
         _CACHED_RESOLVED_MODELS = list(DEFAULT_FLASH_MODELS)
         return _CACHED_RESOLVED_MODELS
 
-    unique_candidates = {name: ver for ver, name in flash_candidates}
+    unique_candidates = {name: ver for ver, name in flash_candidates if name not in DEPRECATED_MODELS}
     sorted_models = sorted(unique_candidates.keys(), key=lambda m: unique_candidates[m], reverse=True)
-    top_candidates = sorted_models[:MAX_CANDIDATE_MODELS]
 
+    # Take up to 2 newest preview models (e.g. 3.8, 3.7)
+    newest_models = [m for m in sorted_models if m not in DEFAULT_FLASH_MODELS][:2]
+
+    # Always ensure the stable production Flash models are included as reliable fallbacks
+    top_candidates = list(newest_models)
     for fallback in DEFAULT_FLASH_MODELS:
         if fallback not in top_candidates:
             top_candidates.append(fallback)
-        if len(top_candidates) >= MAX_CANDIDATE_MODELS:
-            break
 
-    logger.info(f"Discovered standard Flash model(s) via API; selected top {len(top_candidates)}: {top_candidates}")
+    logger.info(f"Discovered standard Flash model(s) via API; selected candidates: {top_candidates}")
     _CACHED_RESOLVED_MODELS = top_candidates
     return _CACHED_RESOLVED_MODELS
 

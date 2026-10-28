@@ -32,11 +32,12 @@ class TestModelsResolver(unittest.TestCase):
 
         candidates = resolve_candidate_models(client, configured_model="auto")
         self.assertEqual(
-            candidates[:3],
+            candidates,
             [
                 "gemini-3.8-flash",
                 "gemini-3.7-flash",
-                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
             ],
         )
 

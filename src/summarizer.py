@@ -69,7 +69,7 @@ class PRSummarizer:
         self.config = config
         self.client = genai.Client(
             api_key=config.gemini_api_key,
-            http_options=types.HttpOptions(timeout=120_000)
+            http_options=types.HttpOptions(timeout=60_000)
         )
 
     def generate_summary(
@@ -125,7 +125,7 @@ class PRSummarizer:
                 config_kwargs = {
                     "system_instruction": SUMMARY_SYSTEM_PROMPT,
                     "temperature": 0.2,
-                    "http_options": types.HttpOptions(timeout=120_000),
+                    "http_options": types.HttpOptions(timeout=60_000),
                 }
                 if current_thinking_budget > 0:
                     config_kwargs["thinking_config"] = types.ThinkingConfig(
