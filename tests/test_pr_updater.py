@@ -1,8 +1,38 @@
 import unittest
-from src.pr_updater import update_pr_description_text, START_TAG, END_TAG
+from unittest.mock import MagicMock
+from src.pr_updater import (
+    update_pr_description_text,
+    extract_existing_summary,
+    PRUpdater,
+    START_TAG,
+    END_TAG,
+)
 
 
 class TestPRUpdater(unittest.TestCase):
+    def test_extract_existing_summary_empty(self):
+        self.assertIsNone(extract_existing_summary(""))
+        self.assertIsNone(extract_existing_summary(None))
+        self.assertIsNone(extract_existing_summary("Just some manual notes without markers."))
+
+    def test_extract_existing_summary_valid(self):
+        body = (
+            f"Some header\n\n{START_TAG}\n## Summary\nExisting summary content.\n{END_TAG}\n\nFooter"
+        )
+        extracted = extract_existing_summary(body)
+        self.assertEqual(extracted, "## Summary\nExisting summary content.")
+
+    def test_extract_existing_summary_legacy_marker(self):
+        body = "<!-- PR-SUMMARIZER:START -->\nLegacy summary text\n<!-- PR-SUMMARIZER:END -->"
+        extracted = extract_existing_summary(body)
+        self.assertEqual(extracted, "Legacy summary text")
+
+    def test_prupdater_get_existing_summary(self):
+        mock_pr = MagicMock()
+        mock_pr.body = f"{START_TAG}\n## Summary\nPrior content.\n{END_TAG}"
+        updater = PRUpdater(mock_pr)
+        self.assertEqual(updater.get_existing_summary(), "## Summary\nPrior content.")
+
     def test_empty_body_starts_directly_with_markers(self):
         summary = "## Summary\nThis is a cool PR."
         res = update_pr_description_text("", summary)

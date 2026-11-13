@@ -95,6 +95,14 @@ def main():
         return
 
     try:
+        # Check for existing summary in PR body to allow iterative refinement
+        updater = PRUpdater(pr)
+        existing_summary = updater.get_existing_summary()
+        if existing_summary:
+            logger.info("Found existing automated summary in PR description; performing iterative update.")
+        else:
+            logger.info("No prior automated summary found; generating new summary from scratch.")
+
         # Synthesize summary via Gemini
         summarizer = PRSummarizer(config)
         summary_markdown = summarizer.generate_summary(
@@ -103,11 +111,10 @@ def main():
             pr_head=pr.head.ref,
             diff_text=filtered_diff,
             file_list=included_files,
+            existing_summary=existing_summary,
         )
 
         # Update PR target
-        updater = PRUpdater(pr)
-
         if config.target_mode in ("description", "both"):
             updater.update_description(summary_markdown)
 

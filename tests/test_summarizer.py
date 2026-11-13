@@ -98,6 +98,29 @@ class TestSummarizerDelayAndQuota(unittest.TestCase):
             self.assertEqual(mock_call.call_args_list[0][0][0], "gemini-3.8-flash")
             self.assertEqual(mock_call.call_args_list[1][0][0], "gemini-3.7-flash")
 
+    @patch("src.summarizer.resolve_candidate_models", return_value=["gemini-3.8-flash"])
+    @patch("src.summarizer.build_user_prompt")
+    def test_generate_summary_passes_existing_summary(self, mock_build_prompt, mock_resolve_models):
+        mock_build_prompt.return_value = "prompt with existing summary"
+        with patch.object(self.summarizer, "_call_model_with_retry", return_value="Updated summary"):
+            res = self.summarizer.generate_summary(
+                pr_title="PR Title",
+                pr_base="main",
+                pr_head="feature",
+                diff_text="diff content",
+                file_list=["test.py"],
+                existing_summary="## Summary\nOld summary",
+            )
+            self.assertEqual(res, "Updated summary")
+            mock_build_prompt.assert_called_once_with(
+                pr_title="PR Title",
+                pr_base="main",
+                pr_head="feature",
+                diff_text="diff content",
+                file_list=["test.py"],
+                existing_summary="## Summary\nOld summary",
+            )
+
     @patch("src.summarizer.time.sleep")
     def test_call_model_raises_high_demand_exception_when_exhausted(self, mock_sleep):
         from src.summarizer import HighDemandException

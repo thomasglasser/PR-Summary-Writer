@@ -71,23 +71,54 @@ Decouples background job processing from the primary application server: backgro
 """
 
 
-def build_user_prompt(pr_title: str, pr_base: str, pr_head: str, diff_text: str, file_list: list[str]) -> str:
-    """Builds the prompt payload containing PR metadata and the filtered diff."""
+def build_user_prompt(
+    pr_title: str,
+    pr_base: str,
+    pr_head: str,
+    diff_text: str,
+    file_list: list[str],
+    existing_summary: str | None = None,
+) -> str:
+    """Builds the prompt payload containing PR metadata, the filtered diff, and optional prior summary to update."""
     files_str = "\n".join(f"- `{f}`" for f in file_list[:50])
     if len(file_list) > 50:
         files_str += f"\n- ... and {len(file_list) - 50} more files"
 
-    return f"""Pull Request Title: {pr_title}
-Base Branch: {pr_base}
-Head Branch: {pr_head}
+    prompt_parts = [
+        f"Pull Request Title: {pr_title}",
+        f"Base Branch: {pr_base}",
+        f"Head Branch: {pr_head}",
+        "",
+        f"Modified Files ({len(file_list)} total):",
+        files_str,
+        "",
+        "Diff Content:",
+        "```diff",
+        diff_text,
+        "```",
+    ]
 
-Modified Files ({len(file_list)} total):
-{files_str}
+    clean_existing = (existing_summary or "").strip()
+    if clean_existing:
+        prompt_parts.extend([
+            "",
+            "Current Pull Request Summary to Update:",
+            "```markdown",
+            clean_existing,
+            "```",
+            "",
+            "### Instructions for Updating the Summary:",
+            "An automated summary already exists for this Pull Request (provided above). Update it against the latest diff rather than rewriting from scratch:",
+            "1. **Preserve Unchanged Work**: Retain existing domain groupings, explanations, and bullet points that still accurately describe the PR.",
+            "2. **Incorporate New Changes**: Add new bullet points or new domain sections for features, fixes, or files newly introduced in the diff.",
+            "3. **Reflect Modifications & Removals**: If previously summarized behavior or code was modified, refactored, or reverted in the diff, update or remove those specific bullet points accordingly.",
+            "4. **Update the Overview**: Adjust the high-level `## Summary` narrative so it accurately synthesizes the full, current scope of the PR.",
+            "5. Follow all output formatting guidelines (start directly with `## Summary`).",
+        ])
+    else:
+        prompt_parts.extend([
+            "",
+            "Please synthesize this Pull Request diff into a conceptual Summary and domain-grouped Main Changes following the established format guidelines.",
+        ])
 
-Diff Content:
-```diff
-{diff_text}
-```
-
-Please synthesize this Pull Request diff into a conceptual Summary and domain-grouped Main Changes following the established format guidelines.
-"""
+    return "\n".join(prompt_parts)

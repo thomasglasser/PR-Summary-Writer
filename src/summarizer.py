@@ -79,13 +79,22 @@ class PRSummarizer:
         pr_head: str,
         diff_text: str,
         file_list: List[str],
+        existing_summary: Optional[str] = None,
     ) -> str:
         """
         Generates a conceptual summary and domain-grouped changelog for the given PR diff.
+        If existing_summary is provided, instructs the model to edit and update it rather than rewriting from scratch.
         Tries top Flash candidate models, failing over immediately to alternatives on 429 quota exhaustion.
         """
         candidate_models = resolve_candidate_models(self.client, self.config.model_name)
-        user_prompt = build_user_prompt(pr_title, pr_base, pr_head, diff_text, file_list)
+        user_prompt = build_user_prompt(
+            pr_title=pr_title,
+            pr_base=pr_base,
+            pr_head=pr_head,
+            diff_text=diff_text,
+            file_list=file_list,
+            existing_summary=existing_summary,
+        )
 
         last_error: Optional[Exception] = None
         encountered_429 = False

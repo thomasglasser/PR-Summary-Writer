@@ -21,6 +21,25 @@ END_TAG_REGEX = re.compile(
 STICKY_COMMENT_TAG = "<!-- PR-SUMMARY-WRITER:STICKY-COMMENT -->"
 
 
+def extract_existing_summary(body: Optional[str]) -> Optional[str]:
+    """
+    Extracts the existing automated summary text from between the marker tags in the PR body,
+    or None if no automated summary block is present.
+    """
+    raw_body = (body or "").strip()
+    if not raw_body:
+        return None
+
+    start_match = START_TAG_REGEX.search(raw_body)
+    end_match = END_TAG_REGEX.search(raw_body)
+
+    if start_match and end_match and start_match.start() < end_match.end():
+        extracted = raw_body[start_match.end():end_match.start()].strip()
+        return extracted if extracted else None
+
+    return None
+
+
 def update_pr_description_text(existing_body: Optional[str], summary_markdown: str) -> str:
     """
     Updates or inserts the summary block inside the PR body while strictly preserving
@@ -56,6 +75,10 @@ def update_pr_description_text(existing_body: Optional[str], summary_markdown: s
 class PRUpdater:
     def __init__(self, pr: PullRequest):
         self.pr = pr
+
+    def get_existing_summary(self) -> Optional[str]:
+        """Extracts the existing automated summary from the PR body if present."""
+        return extract_existing_summary(self.pr.body)
 
     def update_description(self, summary_markdown: str) -> bool:
         """Updates the PR body description in-place."""
