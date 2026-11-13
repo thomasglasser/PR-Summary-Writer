@@ -27,7 +27,7 @@ class TestLiveGeminiAPI(unittest.TestCase):
         self.assertIsInstance(candidates, list)
         self.assertGreater(len(candidates), 0)
         for model in candidates:
-            self.assertTrue("flash" in model.lower())
+            self.assertTrue("flash" in model.lower() or "hydrogen" in model.lower())
 
     def test_live_generate_content(self):
         client = genai.Client(

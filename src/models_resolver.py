@@ -8,7 +8,7 @@ logger = logging.getLogger("pr_summary.models")
 _CACHED_RESOLVED_MODELS: Optional[List[str]] = None
 
 MAX_CANDIDATE_MODELS = 3
-FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
+FLASH_MODEL_PATTERN = re.compile(r"^gemini-(\d+(?:\.\d+)*)-(?:flash|hydrogen)$")
 DEPRECATED_MODELS = {"gemini-2.5-flash"}
 
 
@@ -19,11 +19,14 @@ def clear_model_cache() -> None:
 
 
 def _parse_flash_version(model_name: str) -> Optional[tuple]:
-    """Extract numeric version tuple from 'gemini-X.X-flash' model name, or None if not matching."""
+    """Extract numeric version tuple from 'gemini-X.X-flash' or 'gemini-X.X-hydrogen' model name, or None if not matching."""
     match = FLASH_MODEL_PATTERN.match(model_name)
     if match:
         try:
-            return tuple(int(x) for x in match.group(1).split("."))
+            parts = [int(x) for x in match.group(1).split(".")]
+            if len(parts) == 1:
+                parts.append(0)
+            return tuple(parts)
         except ValueError:
             return None
     return None
@@ -34,7 +37,7 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
     Resolves a prioritized list of Gemini models to try.
     If a specific model name is provided, returns [configured_model].
     If 'auto' (or empty) is provided, queries the Gemini API for the newest standard
-    Flash models up to MAX_CANDIDATE_MODELS (filtering out deprecated models <= 2.0).
+    Flash or Hydrogen models up to MAX_CANDIDATE_MODELS (filtering out deprecated models <= 2.0).
     """
     global _CACHED_RESOLVED_MODELS
 
@@ -44,7 +47,7 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
     if _CACHED_RESOLVED_MODELS:
         return _CACHED_RESOLVED_MODELS
 
-    logger.info("Discovering available Gemini Flash models via API...")
+    logger.info("Discovering available Gemini Flash/Hydrogen models via API...")
     flash_candidates: List[tuple[tuple, str]] = []
 
     models_pager = client.models.list(config={"page_size": 100})
@@ -67,13 +70,13 @@ def resolve_candidate_models(client: genai.Client, configured_model: Optional[st
             break
 
     if not flash_candidates:
-        raise ValueError("No supported 'gemini-X.X-flash' models found from Gemini API model list.")
+        raise ValueError("No supported 'gemini-X.X-flash' or 'gemini-X.X-hydrogen' models found from Gemini API model list.")
 
     unique_candidates = {name: ver for ver, name in flash_candidates if name not in DEPRECATED_MODELS}
     sorted_models = sorted(unique_candidates.keys(), key=lambda m: unique_candidates[m], reverse=True)
     top_candidates = sorted_models[:MAX_CANDIDATE_MODELS]
 
-    logger.info(f"Discovered standard Flash model(s) via API; selected candidates: {top_candidates}")
+    logger.info(f"Discovered standard Flash/Hydrogen model(s) via API; selected candidates: {top_candidates}")
     _CACHED_RESOLVED_MODELS = top_candidates
     return _CACHED_RESOLVED_MODELS
 
